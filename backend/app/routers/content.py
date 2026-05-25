@@ -64,13 +64,14 @@ def board_by_slug(session: Session, slug: str) -> Board:
 def list_boards(session: Session = Depends(get_session), user: User | None = Depends(get_optional_user)):
     # 부서 게시판은 멤버(또는 관리자)에게만 노출
     boards = [b for b in session.exec(select(Board).order_by(Board.sort)).all() if can_access_board(session, user, b)]
-    # 사이드바 NEW: 직전 방문(prev_login) 이후 올라온 글이 있으면 표시
+    # 사이드바 NEW: 직전 방문(prev_login) 이후 올라온 글이 있으면 표시.
+    # 전체 Post 스캔 대신 since 이후 글이 있는 board_id만 distinct로 집계(전송량 O(글수)→O(게시판수)).
     since = _naive((user.prev_login or user.created_at)) if user else None
     new_board_ids: set[int] = set()
     if since is not None:
-        for p in session.exec(select(Post)).all():
-            if _naive(p.created_at) > since:
-                new_board_ids.add(p.board_id)
+        new_board_ids = set(session.exec(
+            select(Post.board_id).where(Post.created_at > since).distinct()
+        ).all())
     out = []
     for b in boards:
         d = board_dict(b)
