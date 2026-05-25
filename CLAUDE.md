@@ -22,14 +22,14 @@ cd frontend && npm run dev          # :3000
 - 프론트 BASE = `NEXT_PUBLIC_API_URL` || `http://localhost:8000`.
 - CORS 허용 origin = `CORS_ORIGINS`(콤마구분) || `localhost:3000,127.0.0.1:3000`. **3000 외 포트로 프론트를 띄우면 CORS_ORIGINS도 맞춰야 함.**
 - 업로드 파일은 `backend/uploads/` → `/uploads` 정적 서빙(리포 미포함).
-- **시드 테스트 계정**(개발용): `admin`/`admin`(관리자), `kim`/`test`. 운영(`ENV=production`)에선 시드가 돌지 않으며 admin 비번은 `SEED_ADMIN_PW`.
+- **시드**: 게시판 7개(구조)는 dev/운영 공통으로 항상 생성(멱등). 데모 콘텐츠(테스트 계정·샘플 글/이벤트/배너)는 **개발 환경에서만** 주입. 테스트 계정(개발용): `admin`/`admin`(관리자), `kim`/`test`. 운영(`ENV=production`)은 게시판 구조만 만들고 데모는 생략하며 admin은 생성하지 않음.
 
 ## 환경변수
 
 | 변수 | 기본 | 설명 |
 |------|------|------|
 | `DATABASE_URL` | `sqlite:///./ctck.db` | DB 연결. PostgreSQL 전환 가능 |
-| `ENV` | `development` | `production`이면 데모 시드 미실행 |
+| `ENV` | `development` | `production`이면 게시판 구조만 시드(데모 콘텐츠·admin 미주입) |
 | `SEED_ADMIN_PW` | `admin` | 시드 admin 비번 |
 | `TOKEN_TTL_DAYS` | `7` | 인증 토큰 만료(일) |
 | `TRUST_PROXY` | `0` | `1`일 때만 X-Forwarded-For 신뢰(역프록시 뒤). 기본은 미신뢰 |

@@ -1,4 +1,9 @@
-"""초기 시드 데이터 (개발 환경에서, 비어 있을 때만 삽입)."""
+"""초기 시드.
+
+- 게시판 구조(BOARDS): dev/운영 공통으로 항상 보장(없을 때만 생성, 멱등).
+  프론트 LeftPanel의 메뉴 slug와 짝이 맞아야 하므로 운영에서도 필요.
+- 데모 콘텐츠(테스트 계정·샘플 글/공지/이벤트/배너): 개발 환경에서만, 비어 있을 때만.
+"""
 from __future__ import annotations
 
 import os
@@ -21,65 +26,77 @@ BOARDS = [
 ]
 
 
+def _ensure_boards(s: Session) -> dict[str, Board]:
+    """게시판 구조 보장(없을 때만 생성). 기존이 있으면 그대로 반환 — 멱등."""
+    existing = {b.slug: b for b in s.exec(select(Board)).all()}
+    if existing:
+        return existing
+    boards: dict[str, Board] = {}
+    for i, (slug, name, short, tag, color, anon, desc) in enumerate(BOARDS):
+        b = Board(slug=slug, name=name, short=short, tag=tag, color=color, is_anon=anon, description=desc, sort=i)
+        s.add(b)
+        boards[slug] = b
+    s.commit()
+    for b in boards.values():
+        s.refresh(b)
+    return boards
+
+
+def _seed_demo(s: Session, boards: dict[str, Board]) -> None:
+    """개발용 데모 콘텐츠(테스트 계정·샘플 글/공지/이벤트/배너)."""
+    admin_pw = os.getenv("SEED_ADMIN_PW", "admin")
+    admin = User(username="admin", nickname="나야나", password_hash=hash_pw(admin_pw),
+                 is_admin=True, points=1280, level=7, level_name="열심 회원", groups="개발팀", last_login=now())
+    kim = User(username="kim", nickname="kim***", password_hash=hash_pw("test"), groups="개발팀")
+    s.add(admin); s.add(kim)
+    s.commit(); s.refresh(admin); s.refresh(kim)
+
+    def post(slug, title, body, author, votes=0, views=0, images=""):
+        p = Post(board_id=boards[slug].id, title=title, body=body, author_id=author.id,
+                 display_author=author.nickname, votes=votes, views=views, images=images)
+        s.add(p); return p
+
+    post("free", "신규 입사자 환영회 사진 공유합니다 📸", "지난 금요일 환영회 사진 모아서 올립니다!", admin, 142, 1203)
+    post("tips", "사내 VPN 느릴 때 이렇게 해보세요", "DNS를 사내 DNS로 바꾸면 빨라집니다.", kim, 87, 760)
+    post("qna", "연차 이월 관련 아시는 분?", "올해 남은 연차 이월 가능한가요?", kim, 33, 410)
+    post("gallery", "사옥 옥상에서 찍은 노을 🌇", "퇴근길 옥상에서 한 컷.", admin, 31, 274,
+         images="/gallery/g1.jpg,/gallery/g5.jpg")
+    post("gallery", "신입 환영회 단체사진 🎉", "다같이 모여 찍은 단체샷!", kim, 88, 920,
+         images="/gallery/g3.jpg,/gallery/g1.jpg,/gallery/g6.jpg,/gallery/g4.jpg,/gallery/g2.jpg")
+    s.commit()
+
+    for t in ["[필독] 사내 게시판 이용 수칙 안내", "여름 휴가 신청 기간 안내 (6/1~6/14)", "보안 교육 이수 마감 D-3"]:
+        s.add(Notice(title=t))
+    s.commit()
+
+    # 투표
+    poll = Event(type="poll", title="체육대회 종목 투표", description="5/30까지", deadline="2026-05-30",
+                 target="전체", body="가장 하고 싶은 종목 하나를 선택해 주세요!")
+    s.add(poll); s.commit(); s.refresh(poll)
+    for label, v in [("풋살", 52), ("피구", 34), ("줄다리기", 28), ("이어달리기", 14)]:
+        s.add(EventOption(event_id=poll.id, label=label, votes=v))
+
+    # 댓글 이벤트
+    ce = Event(type="comment", title="맛집 추천 이벤트", description="댓글 선정", deadline="2026-06-05",
+               target="전체", body="회사 근처 맛집을 댓글로 추천해 주세요!")
+    s.add(ce); s.commit(); s.refresh(ce)
+    s.add(EventEntry(event_id=ce.id, author_id=kim.id, text="회사 뒷골목 두부공방 강추", likes=38))
+
+    # 날짜 투표
+    s.add(Event(type="date", title="3분기 팀 회식 일정", description="가능 시간 체크", deadline="2026-06-20",
+                target="개발팀", body="각 날짜 칸의 시계에서 가능한 시간을 칠해 주세요.",
+                candidate_dates="2026-07-03,2026-07-04,2026-07-08,2026-07-10,2026-07-11,2026-07-15"))
+
+    s.add(Banner(text="🎉 2분기 우수사원 시상식이 곧 진행됩니다!", sub="관리자가 교체하는 공지/홍보 전용 슬롯입니다", active=True))
+    s.commit()
+
+
 def seed() -> None:
-    # 데모 시드는 개발 환경에서만. 운영(ENV=production)에선 더미데이터·기본 admin 계정 주입 금지.
-    if os.getenv("ENV", "development").lower() == "production":
-        return
     with Session(engine) as s:
-        if s.exec(select(Board)).first():
-            return  # 이미 시드됨
-
-        boards: dict[str, Board] = {}
-        for i, (slug, name, short, tag, color, anon, desc) in enumerate(BOARDS):
-            b = Board(slug=slug, name=name, short=short, tag=tag, color=color, is_anon=anon, description=desc, sort=i)
-            s.add(b)
-            boards[slug] = b
-        s.commit()
-        for b in boards.values():
-            s.refresh(b)
-
-        admin_pw = os.getenv("SEED_ADMIN_PW", "admin")  # 운영 데이터 이관 시 환경변수로 주입
-        admin = User(username="admin", nickname="나야나", password_hash=hash_pw(admin_pw),
-                     is_admin=True, points=1280, level=7, level_name="열심 회원", groups="개발팀", last_login=now())
-        kim = User(username="kim", nickname="kim***", password_hash=hash_pw("test"), groups="개발팀")
-        s.add(admin); s.add(kim)
-        s.commit(); s.refresh(admin); s.refresh(kim)
-
-        def post(slug, title, body, author, votes=0, views=0, images=""):
-            p = Post(board_id=boards[slug].id, title=title, body=body, author_id=author.id,
-                     display_author=author.nickname, votes=votes, views=views, images=images)
-            s.add(p); return p
-
-        post("free", "신규 입사자 환영회 사진 공유합니다 📸", "지난 금요일 환영회 사진 모아서 올립니다!", admin, 142, 1203)
-        post("tips", "사내 VPN 느릴 때 이렇게 해보세요", "DNS를 사내 DNS로 바꾸면 빨라집니다.", kim, 87, 760)
-        post("qna", "연차 이월 관련 아시는 분?", "올해 남은 연차 이월 가능한가요?", kim, 33, 410)
-        post("gallery", "사옥 옥상에서 찍은 노을 🌇", "퇴근길 옥상에서 한 컷.", admin, 31, 274,
-             images="/gallery/g1.jpg,/gallery/g5.jpg")
-        post("gallery", "신입 환영회 단체사진 🎉", "다같이 모여 찍은 단체샷!", kim, 88, 920,
-             images="/gallery/g3.jpg,/gallery/g1.jpg,/gallery/g6.jpg,/gallery/g4.jpg,/gallery/g2.jpg")
-        s.commit()
-
-        for t in ["[필독] 사내 게시판 이용 수칙 안내", "여름 휴가 신청 기간 안내 (6/1~6/14)", "보안 교육 이수 마감 D-3"]:
-            s.add(Notice(title=t))
-        s.commit()
-
-        # 투표
-        poll = Event(type="poll", title="체육대회 종목 투표", description="5/30까지", deadline="2026-05-30",
-                     target="전체", body="가장 하고 싶은 종목 하나를 선택해 주세요!")
-        s.add(poll); s.commit(); s.refresh(poll)
-        for label, v in [("풋살", 52), ("피구", 34), ("줄다리기", 28), ("이어달리기", 14)]:
-            s.add(EventOption(event_id=poll.id, label=label, votes=v))
-
-        # 댓글 이벤트
-        ce = Event(type="comment", title="맛집 추천 이벤트", description="댓글 선정", deadline="2026-06-05",
-                   target="전체", body="회사 근처 맛집을 댓글로 추천해 주세요!")
-        s.add(ce); s.commit(); s.refresh(ce)
-        s.add(EventEntry(event_id=ce.id, author_id=kim.id, text="회사 뒷골목 두부공방 강추", likes=38))
-
-        # 날짜 투표
-        s.add(Event(type="date", title="3분기 팀 회식 일정", description="가능 시간 체크", deadline="2026-06-20",
-                    target="개발팀", body="각 날짜 칸의 시계에서 가능한 시간을 칠해 주세요.",
-                    candidate_dates="2026-07-03,2026-07-04,2026-07-08,2026-07-10,2026-07-11,2026-07-15"))
-
-        s.add(Banner(text="🎉 2분기 우수사원 시상식이 곧 진행됩니다!", sub="관리자가 교체하는 공지/홍보 전용 슬롯입니다", active=True))
-        s.commit()
+        boards = _ensure_boards(s)  # 게시판 구조 — 운영 포함 항상 보장
+        # 데모 콘텐츠: 운영(ENV=production)에선 생략, 이미 주입됐으면(유저 존재) 생략
+        if os.getenv("ENV", "development").lower() == "production":
+            return
+        if s.exec(select(User)).first():
+            return
+        _seed_demo(s, boards)
