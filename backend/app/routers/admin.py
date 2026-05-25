@@ -7,7 +7,7 @@ from sqlmodel import Session, select
 from app.db import get_session
 from app.models import (Banner, Board, BoardMember, BoardNoticer, Comment,
                         DateAvailability, Event, EventEntry, EventEntryLike,
-                        EventOption, EventVote, Post, User, now)
+                        EventOption, EventVote, Post, PostRead, User, Vote, now)
 from app.security import require_admin
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -131,11 +131,17 @@ def delete_dept_board(slug: str, session: Session = Depends(get_session), admin:
         raise HTTPException(404, "게시판을 찾을 수 없습니다.")
     if not b.is_dept:
         raise HTTPException(400, "부서 게시판만 삭제할 수 있습니다.")
-    # 글/댓글/멤버/공지권한 정리
+    # 글/댓글/멤버/공지권한 + 공감(Vote)/읽음(PostRead) 정리(고아 레코드 방지)
     posts = session.exec(select(Post).where(Post.board_id == b.id)).all()
     for p in posts:
         for c in session.exec(select(Comment).where(Comment.post_id == p.id)).all():
+            for v in session.exec(select(Vote).where(Vote.target_type == "comment", Vote.target_id == c.id)).all():
+                session.delete(v)
             session.delete(c)
+        for v in session.exec(select(Vote).where(Vote.target_type == "post", Vote.target_id == p.id)).all():
+            session.delete(v)
+        for r in session.exec(select(PostRead).where(PostRead.post_id == p.id)).all():
+            session.delete(r)
         session.delete(p)
     for m in session.exec(select(BoardMember).where(BoardMember.board_id == b.id)).all():
         session.delete(m)

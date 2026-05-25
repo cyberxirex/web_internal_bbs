@@ -1,7 +1,8 @@
 "use client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
 export default function SignupPage() {
@@ -11,8 +12,14 @@ export default function SignupPage() {
   const [nickname, setNickname] = useState("");
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
+  const [groups, setGroups] = useState<string[]>([]);
+  const [selGroups, setSelGroups] = useState<string[]>([]);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => { api<{ groups: string[] }>("/api/meta").then((m) => setGroups(m.groups)).catch(() => {}); }, []);
+  const toggleGroup = (g: string) =>
+    setSelGroups((s) => (s.includes(g) ? s.filter((x) => x !== g) : [...s, g]));
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -23,7 +30,7 @@ export default function SignupPage() {
     }
     setBusy(true);
     try {
-      await signup(username, nickname, pw);
+      await signup(username, nickname, pw, selGroups);
       router.push("/");
     } catch (e) {
       setErr((e as Error).message);
@@ -43,6 +50,23 @@ export default function SignupPage() {
           <input value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder="닉네임 (게시판에 표시)" className="w-full bg-background border border-border rounded-lg px-3 py-2.5 text-sm outline-none placeholder:text-muted" />
           <input value={pw} onChange={(e) => setPw(e.target.value)} placeholder="비밀번호 (4자 이상)" type="password" className="w-full bg-background border border-border rounded-lg px-3 py-2.5 text-sm outline-none placeholder:text-muted" />
           <input value={pw2} onChange={(e) => setPw2(e.target.value)} placeholder="비밀번호 확인" type="password" className="w-full bg-background border border-border rounded-lg px-3 py-2.5 text-sm outline-none placeholder:text-muted" />
+
+          {groups.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-foreground/70 mb-1.5">소속 부서 <span className="text-muted font-normal">(선택 · 부서 대상 소식 수신)</span></p>
+              <div className="flex flex-wrap gap-1.5">
+                {groups.map((g) => {
+                  const on = selGroups.includes(g);
+                  return (
+                    <button type="button" key={g} onClick={() => toggleGroup(g)}
+                      className={`text-xs font-semibold px-2.5 py-1.5 rounded-lg border ${on ? "border-primary bg-primary-soft text-primary" : "border-border text-foreground/60 hover:border-primary"}`}>
+                      {g}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           <div className="rounded-xl bg-background p-3 text-[11px] text-muted leading-relaxed">
             ⚠️ 사내 시스템 보호를 위해 가입·작성 시 접속 IP가 확인되며, 동일 IP 다중 가입·도배는 자동 제한될 수 있습니다.

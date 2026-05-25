@@ -4,6 +4,7 @@ from collections import defaultdict
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import func, update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
@@ -138,14 +139,13 @@ def poll_vote(event_id: int, body: PollVoteIn, session: Session = Depends(get_se
         opt = session.get(EventOption, body.option_id)
         if not opt or opt.event_id != event_id:
             raise HTTPException(400, "잘못된 선택지입니다.")
-    # 동시 중복 투표는 (event_id,user_id) unique 제약이 차단(IntegrityError→409). 카운터는 실제 표 수로 재계산.
+    # 동시 중복 투표는 (event_id,user_id) unique 제약이 차단(IntegrityError→409). 카운터는 원자적 재계산.
     session.add(EventVote(event_id=event_id, user_id=user.id, option_id=body.option_id))
     session.flush()
     if opt is not None:
-        opt.votes = len(session.exec(
-            select(EventVote.id).where(EventVote.event_id == event_id, EventVote.option_id == opt.id)
-        ).all())
-        session.add(opt)
+        count_subq = (select(func.count()).select_from(EventVote)
+                      .where(EventVote.event_id == event_id, EventVote.option_id == opt.id).scalar_subquery())
+        session.execute(update(EventOption).where(EventOption.id == opt.id).values(votes=count_subq))
     session.commit()
     return {"ok": True}
 
@@ -191,11 +191,12 @@ def like_entry(entry_id: int, session: Session = Depends(get_session), user: Use
         except IntegrityError:
             session.rollback()
             liked = True
-    # 좋아요 수는 실제 행 수로 재계산(드리프트 방지)
-    en = session.get(EventEntry, entry_id)
-    en.likes = len(session.exec(select(EventEntryLike.id).where(EventEntryLike.entry_id == entry_id)).all())
-    session.add(en)
+    # 좋아요 수는 실제 행 수를 단일 원자적 UPDATE로 대입(드리프트 방지)
+    count_subq = (select(func.count()).select_from(EventEntryLike)
+                  .where(EventEntryLike.entry_id == entry_id).scalar_subquery())
+    session.execute(update(EventEntry).where(EventEntry.id == entry_id).values(likes=count_subq))
     session.commit()
+    en = session.get(EventEntry, entry_id)
     return {"liked": liked, "likes": en.likes}
 
 

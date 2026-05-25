@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
+from sqlalchemy import func, update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
@@ -17,6 +18,14 @@ NEW_MAX_AGE = timedelta(hours=8)  # 작성 8시간 지나면 (미확인이어도
 def _naive(dt):
     """SQLite는 naive datetime을 저장 — 비교 전 tz 제거(UTC 기준 통일)."""
     return dt.replace(tzinfo=None) if dt and dt.tzinfo else dt
+
+
+def iso_utc(dt) -> str | None:
+    """저장된 naive UTC datetime을 tz suffix 포함 ISO로 직렬화.
+    프론트 new Date(iso)가 로컬(KST)로 오해석해 9시간 어긋나는 것을 방지."""
+    if dt is None:
+        return None
+    return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).isoformat()
 from app.security import (
     can_access_board,
     can_post_notice,
@@ -43,7 +52,7 @@ def post_row(p: Post, b: Board) -> dict:
         "id": p.id, "boardSlug": b.slug, "board": b.short, "color": b.color,
         "title": p.title, "author": p.display_author, "votes": p.votes,
         "comments": p.comments_count, "views": p.views,
-        "createdAt": p.created_at.isoformat(), "image": imgs[0] if imgs else None,
+        "createdAt": iso_utc(p.created_at), "image": imgs[0] if imgs else None,
         "imageCount": len(imgs),
     }
 
@@ -148,13 +157,18 @@ def get_post(post_id: int, session: Session = Depends(get_session), user: User =
         raise HTTPException(404, "글을 찾을 수 없습니다.")
     b = session.get(Board, p.board_id)
     require_board_access(session, user, b)
-    p.views += 1
-    session.add(p)
-    # 확인 기록 → NEW 딱지 제거
+    # 조회수는 원자적 UPDATE로 증가(동시 조회 시 lost-update 방지)
+    session.execute(update(Post).where(Post.id == p.id).values(views=Post.views + 1))
+    session.commit()
+    session.refresh(p)
+    # 확인 기록 → NEW 딱지 제거. 멱등: 동시/중복 삽입은 unique 제약 위반을 무시.
     already = session.exec(select(PostRead).where(PostRead.user_id == user.id, PostRead.post_id == p.id)).first()
     if not already:
         session.add(PostRead(user_id=user.id, post_id=p.id))
-    session.commit()
+        try:
+            session.commit()
+        except IntegrityError:
+            session.rollback()
     voted = session.exec(
         select(Vote).where(Vote.user_id == user.id, Vote.target_type == "post", Vote.target_id == p.id)
     ).first() is not None
@@ -228,8 +242,15 @@ def delete_post(post_id: int, body: DeleteIn, session: Session = Depends(get_ses
             raise HTTPException(403, "삭제 비밀번호가 올바르지 않습니다.")
     elif p.author_id != user.id and not user.is_admin:
         raise HTTPException(403, "본인 글만 삭제할 수 있습니다.")
+    # 댓글 + 댓글/글의 공감(Vote) + 읽음기록(PostRead)까지 함께 정리(고아 레코드/집계 오염 방지)
     for c in session.exec(select(Comment).where(Comment.post_id == p.id)).all():
+        for v in session.exec(select(Vote).where(Vote.target_type == "comment", Vote.target_id == c.id)).all():
+            session.delete(v)
         session.delete(c)
+    for v in session.exec(select(Vote).where(Vote.target_type == "post", Vote.target_id == p.id)).all():
+        session.delete(v)
+    for r in session.exec(select(PostRead).where(PostRead.post_id == p.id)).all():
+        session.delete(r)
     session.delete(p)
     session.commit()
     return {"ok": True}
@@ -243,7 +264,7 @@ def list_comments(post_id: int, session: Session = Depends(get_session), user: U
         require_board_access(session, user, session.get(Board, p.board_id))
     cmts = session.exec(select(Comment).where(Comment.post_id == post_id).order_by(Comment.created_at)).all()
     return [{"id": c.id, "author": c.display_author, "body": c.body, "votes": c.votes,
-             "images": [s for s in c.images.split(",") if s], "createdAt": c.created_at.isoformat()} for c in cmts]
+             "images": [s for s in c.images.split(",") if s], "createdAt": iso_utc(c.created_at)} for c in cmts]
 
 
 class CommentIn(BaseModel):
@@ -280,15 +301,15 @@ def create_comment(post_id: int, body: CommentIn, request: Request, session: Ses
 
 
 # ── 공감(추천) 토글 — 1인 1표 ─────────────────────────────
-def _vote_count(session: Session, target_type: str, target_id: int) -> int:
-    return len(session.exec(
-        select(Vote.id).where(Vote.target_type == target_type, Vote.target_id == target_id)
-    ).all())
+def _vote_count_subq(target_type: str, target_id: int):
+    return (select(func.count()).select_from(Vote)
+            .where(Vote.target_type == target_type, Vote.target_id == target_id)
+            .scalar_subquery())
 
 
 def _toggle_vote(session: Session, user: User, target_type: str, target_id: int, obj) -> dict:
-    """공감 토글. 카운터는 ±1 누산 대신 실제 Vote 행 수로 재계산 →
-    동시 요청 시 lost-update 드리프트 방지. 중복 삽입은 unique 제약으로 차단."""
+    """공감 토글. 카운터는 ±1 누산 대신 '실제 행 수' 서브쿼리를 단일 원자적 UPDATE로 대입 →
+    동시 토글에서도 lost-update/드리프트 없음(SQLite·Postgres 양쪽 안전). 중복은 unique 제약으로 차단."""
     obj_type, obj_id = type(obj), obj.id
     existing = session.exec(
         select(Vote).where(Vote.user_id == user.id, Vote.target_type == target_type, Vote.target_id == target_id)
@@ -304,10 +325,11 @@ def _toggle_vote(session: Session, user: User, target_type: str, target_id: int,
         except IntegrityError:
             session.rollback()
             voted = True
-    obj = session.get(obj_type, obj_id)
-    obj.votes = _vote_count(session, target_type, target_id)
-    session.add(obj)
+    # flush된 insert/delete를 포함한 현재 상태로 카운터를 한 문장으로 재계산
+    session.execute(update(obj_type).where(obj_type.id == obj_id)
+                    .values(votes=_vote_count_subq(target_type, target_id)))
     session.commit()
+    obj = session.get(obj_type, obj_id)
     return {"voted": voted, "votes": obj.votes}
 
 

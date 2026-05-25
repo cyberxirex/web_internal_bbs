@@ -6,7 +6,6 @@ import { useAuth } from "@/lib/auth";
 
 type Kind = "poll" | "comment" | "date";
 type Ev = { id: number; type: Kind; title: string; desc: string; target: string; deadline: string; participants: number };
-const GROUPS = ["개발팀", "디자인팀", "기획팀", "마케팅팀", "경영지원팀"];
 const KIND_LABEL: Record<Kind, string> = { poll: "투표", comment: "댓글", date: "날짜" };
 
 export default function AdminEvents() {
@@ -20,6 +19,7 @@ export default function AdminEvents() {
   const [dateCands, setDateCands] = useState("");
   const [targetMode, setTargetMode] = useState<"all" | "groups" | "custom">("all");
   const [selGroups, setSelGroups] = useState<string[]>([]);
+  const [groups, setGroups] = useState<string[]>([]);
   const [custom, setCustom] = useState("");
   const [err, setErr] = useState("");
   // 기존 이벤트 관리(수정/삭제)
@@ -30,6 +30,7 @@ export default function AdminEvents() {
 
   const refresh = () => api<Ev[]>("/api/events").then(setList).catch(() => {});
   useEffect(() => { if (user?.isAdmin) refresh(); }, [user]);
+  useEffect(() => { api<{ groups: string[] }>("/api/meta").then((m) => setGroups(m.groups)).catch(() => {}); }, []);
 
   if (!loading && (!user || !user.isAdmin)) {
     return (
@@ -112,7 +113,7 @@ export default function AdminEvents() {
           <label className="block text-xs font-bold text-muted mb-1.5">투표 대상</label>
           <div className="flex flex-wrap gap-2">{([["all", "전체"], ["groups", "그룹 지정"], ["custom", "개별 지정"]] as const).map(([v, label]) => (
             <button key={v} onClick={() => setTargetMode(v)} className={`px-3 py-1.5 rounded-lg text-sm font-semibold border ${targetMode === v ? "bg-primary-soft text-primary border-primary" : "bg-background border-border text-foreground/70 hover:border-primary"}`}>{label}</button>))}</div>
-          {targetMode === "groups" && <div className="flex flex-wrap gap-2 mt-2">{GROUPS.map((g) => (
+          {targetMode === "groups" && <div className="flex flex-wrap gap-2 mt-2">{groups.map((g) => (
             <button key={g} onClick={() => setSelGroups((s) => (s.includes(g) ? s.filter((x) => x !== g) : [...s, g]))} className={`px-2.5 py-1 rounded-full text-xs font-semibold border ${selGroups.includes(g) ? "bg-primary text-white border-primary" : "bg-background border-border text-foreground/70 hover:border-primary"}`}>{g}</button>))}</div>}
           {targetMode === "custom" && <input value={custom} onChange={(e) => setCustom(e.target.value)} placeholder="이름/사번을 쉼표로 입력" className={`${inputCls} mt-2`} />}
           <p className="text-[11px] text-muted mt-1.5">현재 대상: <span className="font-semibold text-foreground/70">{targetLabel}</span></p>

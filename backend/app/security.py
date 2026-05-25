@@ -50,11 +50,17 @@ def _resolve_token(session: Session, token: str) -> AuthToken | None:
     return row
 
 
+# 신뢰할 수 있는 역프록시 뒤에 있을 때만 X-Forwarded-For를 신뢰(TRUST_PROXY=1).
+# 기본값은 미신뢰: 클라이언트가 헤더를 위조해 레이트리밋/다중가입 탐지를 우회하는 것을 막는다.
+TRUST_PROXY = os.getenv("TRUST_PROXY", "0").lower() in ("1", "true", "yes")
+
+
 def client_ip(request: Request) -> str:
-    # 사내망 내부 배포 가정: 프록시 있으면 X-Forwarded-For 첫 IP 사용
-    xff = request.headers.get("x-forwarded-for")
-    if xff:
-        return xff.split(",")[0].strip()
+    if TRUST_PROXY:
+        # 신뢰 프록시가 추가한 가장 오른쪽 값이 실제 직전 홉. 단순화해 마지막 항목 사용.
+        xff = request.headers.get("x-forwarded-for")
+        if xff:
+            return xff.split(",")[-1].strip()
     return request.client.host if request.client else "0.0.0.0"
 
 

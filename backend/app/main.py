@@ -14,10 +14,12 @@ from app.seed import seed
 
 app = FastAPI(title="CTCK BBS API")
 
-# 사내망 프론트(Next.js). 운영 시 도메인 제한.
+# 사내망 프론트(Next.js). CORS_ORIGINS(콤마구분)로 오버라이드, 기본은 로컬 개발 포트.
+_default_origins = "http://localhost:3000,http://127.0.0.1:3000"
+allow_origins = [o.strip() for o in os.getenv("CORS_ORIGINS", _default_origins).split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=allow_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

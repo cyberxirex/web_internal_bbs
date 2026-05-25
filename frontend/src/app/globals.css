@@ -107,3 +107,10 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .badge-wiggle, .chev-bounce { animation: none; }
 }
+
+/* 키보드 포커스 가시성 (WCAG 2.4.7) — 마우스 클릭엔 영향 없이 키보드 탐색 시에만 표시 */
+*:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}

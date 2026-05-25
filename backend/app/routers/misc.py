@@ -6,11 +6,15 @@ import re
 import secrets
 import socket
 import urllib.request
+from io import BytesIO
 from urllib.parse import urlparse
+
+from PIL import Image
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlmodel import Session, col, or_, select
 
+from app.constants import GROUPS
 from app.db import get_session
 from app.models import Banner, Board, Notice, Post, User
 from app.routers.content import board_dict, post_row
@@ -52,6 +56,12 @@ def gallery(session: Session = Depends(get_session)):
         return {"board": None, "posts": []}
     posts = session.exec(select(Post).where(Post.board_id == b.id).order_by(Post.created_at.desc())).all()
     return {"board": board_dict(b), "posts": [post_row(p, b) for p in posts]}
+
+
+# ── 메타(프론트 공유 상수) ────────────────────────────────
+@router.get("/meta")
+def meta():
+    return {"groups": GROUPS}
 
 
 # ── 공지 목록 ─────────────────────────────────────────────
@@ -124,13 +134,28 @@ def link_preview(url: str, user: User = Depends(get_current_user)):
 
 
 # ── 이미지 업로드 (붙여넣기) ──────────────────────────────
+MAX_UPLOAD_BYTES = 8 * 1024 * 1024  # 8MB
+ALLOWED_IMAGE_FORMATS = {"JPEG", "PNG", "GIF", "WEBP"}
+
+
 @router.post("/uploads")
 async def upload(file: UploadFile = File(...), user: User = Depends(get_current_user)):
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in (".jpg", ".jpeg", ".png", ".gif", ".webp"):
         raise HTTPException(400, "이미지 파일만 업로드할 수 있습니다.")
+    data = await file.read(MAX_UPLOAD_BYTES + 1)  # 크기 상한(DoS·디스크 고갈 방지)
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(400, "이미지 크기는 8MB 이하만 업로드할 수 있습니다.")
+    try:
+        img = Image.open(BytesIO(data))
+        img.verify()  # 매직바이트/구조 검증 — 확장자만 위장한 비이미지 차단
+        fmt = img.format
+    except Exception:
+        raise HTTPException(400, "유효한 이미지 파일이 아닙니다.")
+    if fmt not in ALLOWED_IMAGE_FORMATS:
+        raise HTTPException(400, "지원하지 않는 이미지 형식입니다.")
     name = secrets.token_hex(8) + ext
     path = os.path.join(UPLOAD_DIR, name)
     with open(path, "wb") as f:
-        f.write(await file.read())
+        f.write(data)
     return {"url": f"/uploads/{name}"}

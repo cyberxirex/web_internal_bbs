@@ -12,13 +12,14 @@ export type User = {
   points: number;
   joinedAt: string;
   lastLogin: string | null;
+  groups?: string[];
 };
 
 type Ctx = {
   user: User | null;
   loading: boolean;
   login: (username: string, password: string) => Promise<void>;
-  signup: (username: string, nickname: string, password: string) => Promise<void>;
+  signup: (username: string, nickname: string, password: string, groups?: string[]) => Promise<void>;
   logout: () => Promise<void>;
 };
 
@@ -69,8 +70,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setToken(r.token);
     setUser(r.user);
   };
-  const signup = async (username: string, nickname: string, password: string) => {
-    const r = await api<{ token: string; user: User }>("/api/auth/signup", { json: { username, nickname, password } });
+  const signup = async (username: string, nickname: string, password: string, groups: string[] = []) => {
+    const r = await api<{ token: string; user: User }>("/api/auth/signup", { json: { username, nickname, password, groups } });
     setToken(r.token);
     setUser(r.user);
   };
