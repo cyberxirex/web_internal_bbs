@@ -139,9 +139,22 @@ def me_permissions(session: Session = Depends(get_session), user: User = Depends
 def feed(session: Session = Depends(get_session)):
     # 홈 피드는 공개 — 부서 게시판 글은 노출하지 않음
     boards = {b.id: b for b in session.exec(select(Board)).all() if not b.is_dept}
-    posts = session.exec(select(Post).order_by(Post.created_at.desc()).limit(200)).all()
-    rows = [post_row(p, boards[p.board_id]) for p in posts if p.board_id in boards][:60]
-    weekly = sorted(rows, key=lambda r: r["votes"], reverse=True)[:5]
+    open_ids = list(boards.keys())
+    if not open_ids:
+        return {"posts": [], "weeklyBest": []}
+    # 부서글 제외를 DB단에서 필터한 뒤 최신 60개만 조회(메모리 후필터 낭비 제거,
+    # 부서글이 많아도 일반글 60개를 보장)
+    posts = session.exec(
+        select(Post).where(Post.board_id.in_(open_ids)).order_by(Post.created_at.desc()).limit(60)
+    ).all()
+    rows = [post_row(p, boards[p.board_id]) for p in posts]
+    # 주간 베스트: 최근 7일 글 중 공감 상위 5 (이름값대로 기간 조건 적용)
+    week_ago = _naive(now()) - timedelta(days=7)
+    best = session.exec(
+        select(Post).where(Post.board_id.in_(open_ids), Post.created_at > week_ago)
+        .order_by(Post.votes.desc()).limit(5)
+    ).all()
+    weekly = [post_row(p, boards[p.board_id]) for p in best]
     return {"posts": rows, "weeklyBest": weekly}
 
 
