@@ -8,6 +8,7 @@ import type { EventData } from "@/app/events/[id]/page";
 export default function PollEvent({ event, reload }: { event: EventData; reload: () => void }) {
   const { user } = useAuth();
   const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
   const options = event.options ?? [];
   const abstain = event.abstain ?? 0;
   const total = options.reduce((s, o) => s + o.votes, 0) + abstain;
@@ -15,10 +16,12 @@ export default function PollEvent({ event, reload }: { event: EventData; reload:
   const maxVotes = Math.max(...options.map((o) => o.votes), 0);
 
   const pick = async (optionId: number | null) => {
-    if (!user || voted) return;
+    if (!user || voted || busy) return;  // 첫 투표 직후 reload 전 연타 차단
+    setBusy(true);
     setErr("");
     try { await api(`/api/events/${event.id}/vote`, { json: { option_id: optionId } }); reload(); }
     catch (e) { setErr((e as Error).message); }
+    finally { setBusy(false); }
   };
 
   return (
@@ -40,7 +43,7 @@ export default function PollEvent({ event, reload }: { event: EventData; reload:
             const mine = event.myVote === o.id;
             const leading = o.votes === maxVotes && maxVotes > 0;
             return (
-              <button key={o.id} onClick={() => pick(o.id)} disabled={!user || voted}
+              <button key={o.id} onClick={() => pick(o.id)} disabled={!user || voted || busy}
                 className={`relative w-full overflow-hidden rounded-xl border-2 text-left px-4 py-4 transition-colors ${mine ? "border-primary" : "border-border"} ${user && !voted ? "hover:border-primary cursor-pointer" : "cursor-default"}`}>
                 <span className={`absolute inset-y-0 left-0 transition-all ${mine ? "bg-primary-soft" : "bg-background"}`} style={{ width: `${pct}%` }} />
                 <span className="relative flex items-center justify-between gap-2">
@@ -50,7 +53,7 @@ export default function PollEvent({ event, reload }: { event: EventData; reload:
               </button>
             );
           })}
-          <button onClick={() => pick(null)} disabled={!user || voted}
+          <button onClick={() => pick(null)} disabled={!user || voted || busy}
             className={`w-full rounded-xl border-2 border-dashed text-left px-4 py-3 flex items-center justify-between ${event.myVote === "abstain" ? "border-pink text-pink" : "border-border text-muted"} ${user && !voted ? "hover:border-pink cursor-pointer" : "cursor-default"}`}>
             <span className="text-sm font-semibold flex items-center gap-1.5">기권 · 참여 안 함{event.myVote === "abstain" && <span className="text-[10px] font-bold">내 선택</span>}</span>
             <span className="text-xs font-semibold shrink-0">{abstain.toLocaleString()}명</span>

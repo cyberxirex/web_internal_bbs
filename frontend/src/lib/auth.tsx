@@ -48,6 +48,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })();
   }, []);
 
+  // 토큰 만료(api()의 401)와 다른 탭의 로그인/로그아웃을 감지해 user 상태를 동기화
+  useEffect(() => {
+    const onUnauthorized = () => setUser(null);
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== "ctck-token") return;
+      if (!e.newValue) setUser(null); // 다른 탭에서 로그아웃
+      else api<User>("/api/auth/me").then(setUser).catch(() => setUser(null)); // 다른 탭에서 로그인
+    };
+    window.addEventListener("auth:unauthorized", onUnauthorized);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener("auth:unauthorized", onUnauthorized);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, []);
+
   const login = async (username: string, password: string) => {
     const r = await api<{ token: string; user: User }>("/api/auth/login", { json: { username, password } });
     setToken(r.token);

@@ -6,6 +6,7 @@ import PollEvent from "@/components/PollEvent";
 import CommentEvent from "@/components/CommentEvent";
 import DatePoll from "@/components/DatePoll";
 import { api } from "@/lib/api";
+import { useFocusRefetch } from "@/lib/useFocusRefetch";
 
 export type EventData = {
   id: number; type: "poll" | "comment" | "date"; title: string; desc?: string; body?: string;
@@ -21,6 +22,7 @@ export default function EventPage() {
   const [err, setErr] = useState("");
   const load = useCallback(() => { api<EventData>(`/api/events/${id}`).then(setEv).catch((e) => setErr(e.message)); }, [id]);
   useEffect(load, [load]);
+  useFocusRefetch(load);  // 다른 참여자의 투표/좋아요/가능시간을 탭 복귀 시 반영
 
   return (
     <main className="flex-1 w-full">

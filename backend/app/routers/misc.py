@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import ipaddress
 import os
 import re
 import secrets
+import socket
 import urllib.request
 from urllib.parse import urlparse
 
@@ -80,11 +82,34 @@ def _meta(html: str, prop: str) -> str | None:
     return None
 
 
+def _is_blocked_host(host: str) -> bool:
+    """호스트가 해석되는 모든 IP를 검사 → 사설/루프백/링크로컬/예약 대역이면 차단(SSRF 방지)."""
+    if not host:
+        return True
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except socket.gaierror:
+        return True  # 해석 불가 호스트는 차단
+    for info in infos:
+        ip_str = info[4][0]
+        try:
+            ip = ipaddress.ip_address(ip_str)
+        except ValueError:
+            return True
+        if (ip.is_private or ip.is_loopback or ip.is_link_local
+                or ip.is_reserved or ip.is_multicast or ip.is_unspecified):
+            return True
+    return False
+
+
 @router.get("/link-preview")
 def link_preview(url: str, user: User = Depends(get_current_user)):
     if not (url.startswith("http://") or url.startswith("https://")):
         raise HTTPException(400, "유효한 URL이 아닙니다.")
     domain = urlparse(url).netloc
+    host = urlparse(url).hostname or ""
+    if _is_blocked_host(host):
+        raise HTTPException(400, "해당 주소는 미리보기를 지원하지 않습니다.")
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (compatible; CTCK-BBS/1.0)"})
         with urllib.request.urlopen(req, timeout=4) as r:  # noqa: S310 (사내망 전용)

@@ -7,6 +7,7 @@ import ImageCarousel from "@/components/ImageCarousel";
 import LinkPreview from "@/components/LinkPreview";
 import ProfanityModal from "@/components/ProfanityModal";
 import { api, imgUrl, relTime, uploadImage } from "@/lib/api";
+import { useFocusRefetch } from "@/lib/useFocusRefetch";
 import { extractUrls, youtubeId } from "@/lib/links";
 import { useAuth } from "@/lib/auth";
 
@@ -27,6 +28,8 @@ export default function PostPage() {
   const [text, setText] = useState("");
   const [commentImages, setCommentImages] = useState<string[]>([]);
   const [zoom, setZoom] = useState<string | null>(null);  // 확대된 댓글 이미지 키(commentId-index)
+  const [voting, setVoting] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   const load = useCallback(() => {
     setErr("");
@@ -37,16 +40,25 @@ export default function PostPage() {
   }, [id]);
 
   useEffect(() => { if (!loading) load(); }, [load, loading, user]);
+  useFocusRefetch(load);  // 다른 사용자가 추가한 댓글/공감을 탭 복귀 시 반영
 
   const pin = async () => {
     if (!post) return;
-    await api(`/api/admin/posts/${id}/pin`, { json: { pinned: !post.pinned } });
-    load();
+    try {
+      await api(`/api/admin/posts/${id}/pin`, { json: { pinned: !post.pinned } });
+      load();
+    } catch (e) { alert((e as Error).message); }
   };
   const vote = async () => {
-    if (!post) return;
-    const r = await api<{ voted: boolean; votes: number }>(`/api/posts/${id}/vote`, { method: "POST" });
-    setPost({ ...post, voted: r.voted, votes: r.votes });
+    if (!post || voting) return;  // 진행 중 연타 차단
+    setVoting(true);
+    try {
+      const r = await api<{ voted: boolean; votes: number }>(`/api/posts/${id}/vote`, { method: "POST" });
+      setPost({ ...post, voted: r.voted, votes: r.votes });
+    } catch (e) {
+      alert((e as Error).message);  // 삭제된 글 등
+      load();
+    } finally { setVoting(false); }
   };
   const onCommentPaste = async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const imgs = Array.from(e.clipboardData.items).filter((it) => it.type.startsWith("image/"));
@@ -58,7 +70,9 @@ export default function PostPage() {
     }
   };
   const submitComment = async () => {
+    if (submitting) return;  // 진행 중 연타 → 중복 댓글 방지
     if (!text.trim() && commentImages.length === 0) return;
+    setSubmitting(true);
     try {
       await api(`/api/posts/${id}/comments`, { json: { body: text, images: commentImages } });
       setText("");
@@ -67,7 +81,7 @@ export default function PostPage() {
     } catch (e) {
       if ((e as Error).message.includes("사용할 수 없는")) setProfanity(true);
       else alert((e as Error).message);
-    }
+    } finally { setSubmitting(false); }
   };
   const [profanity, setProfanity] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
@@ -143,7 +157,7 @@ export default function PostPage() {
         })}
 
         <div className="mt-8 flex flex-col items-center gap-3">
-          <button onClick={vote} className={`flex flex-col items-center justify-center w-20 py-3 rounded-2xl border-2 transition-all ${post.voted ? "border-pink bg-pink-soft text-pink scale-[1.03]" : "border-border bg-card text-foreground/70 hover:border-pink hover:text-pink"}`}>
+          <button onClick={vote} disabled={voting} className={`flex flex-col items-center justify-center w-20 py-3 rounded-2xl border-2 transition-all disabled:opacity-60 ${post.voted ? "border-pink bg-pink-soft text-pink scale-[1.03]" : "border-border bg-card text-foreground/70 hover:border-pink hover:text-pink"}`}>
             <span className="text-xl leading-none">{post.voted ? "💖" : "🤍"}</span>
             <span className="text-lg font-extrabold mt-1">{post.votes}</span>
             <span className="text-[11px] font-semibold">공감</span>
@@ -198,7 +212,7 @@ export default function PostPage() {
         <div className="mt-5">
           <div className="flex gap-2">
             <textarea value={text} onChange={(e) => setText(e.target.value)} onPaste={onCommentPaste} rows={2} placeholder="따뜻한 댓글을 남겨주세요 (이미지 Ctrl+V · 링크 자동)" className="flex-1 bg-background rounded-xl px-3 py-2 text-sm outline-none border border-border resize-none placeholder:text-muted" />
-            <button onClick={submitComment} className="shrink-0 px-4 rounded-xl bg-primary text-white font-bold text-sm">등록</button>
+            <button onClick={submitComment} disabled={submitting} className="shrink-0 px-4 rounded-xl bg-primary text-white font-bold text-sm disabled:opacity-60">{submitting ? "등록 중…" : "등록"}</button>
           </div>
           {commentImages.length > 0 && (
             <div className="flex flex-wrap gap-2 mt-2">

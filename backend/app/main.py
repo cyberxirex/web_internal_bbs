@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import os
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy.exc import IntegrityError
 
 from app.db import init_db
 from app.routers import admin, auth, content, events, misc, notifications
@@ -31,6 +33,12 @@ app.include_router(misc.router)
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+
+
+@app.exception_handler(IntegrityError)
+async def integrity_error_handler(request: Request, exc: IntegrityError) -> JSONResponse:
+    # 동시 요청 등으로 unique 제약 위반 시 500이 아닌 409로 응답(예: 동일 아이디 동시 가입).
+    return JSONResponse(status_code=409, content={"detail": "이미 존재하거나 중복된 요청입니다."})
 
 
 @app.on_event("startup")

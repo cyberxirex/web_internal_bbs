@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from sqlalchemy import UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 
@@ -33,6 +34,7 @@ class AuthToken(SQLModel, table=True):
     token: str = Field(primary_key=True)
     user_id: int = Field(index=True)
     created_at: datetime = Field(default_factory=now)
+    expires_at: datetime | None = None  # 만료 시각(UTC). None이면(구 토큰) 만료 검사 생략.
 
 
 # ── 게시판 / 글 / 댓글 ─────────────────────────────────────
@@ -51,6 +53,7 @@ class Board(SQLModel, table=True):
 
 class BoardNoticer(SQLModel, table=True):
     """게시판별 공지 작성 권한자 (관리자가 지정). 관리자는 별도 지정 없이도 항상 가능."""
+    __table_args__ = (UniqueConstraint("board_id", "user_id", name="uq_noticer_board_user"),)
     id: int | None = Field(default=None, primary_key=True)
     board_id: int = Field(index=True)
     user_id: int = Field(index=True)
@@ -58,6 +61,7 @@ class BoardNoticer(SQLModel, table=True):
 
 class BoardMember(SQLModel, table=True):
     """부서 게시판 멤버(접근 가능자). 관리자는 멤버가 아니어도 관리 가능."""
+    __table_args__ = (UniqueConstraint("board_id", "user_id", name="uq_member_board_user"),)
     id: int | None = Field(default=None, primary_key=True)
     board_id: int = Field(index=True)
     user_id: int = Field(index=True)
@@ -65,6 +69,7 @@ class BoardMember(SQLModel, table=True):
 
 class PostRead(SQLModel, table=True):
     """사용자가 연(확인한) 글. NEW 딱지 제거 기준."""
+    __table_args__ = (UniqueConstraint("user_id", "post_id", name="uq_postread_user_post"),)
     id: int | None = Field(default=None, primary_key=True)
     user_id: int = Field(index=True)
     post_id: int = Field(index=True)
@@ -104,6 +109,7 @@ class Comment(SQLModel, table=True):
 
 class Vote(SQLModel, table=True):
     """공감(추천). 1인 1표 (user_id + target)."""
+    __table_args__ = (UniqueConstraint("user_id", "target_type", "target_id", name="uq_vote_user_target"),)
     id: int | None = Field(default=None, primary_key=True)
     user_id: int = Field(index=True)
     target_type: str = Field(index=True)  # post | comment
@@ -120,6 +126,7 @@ class Notice(SQLModel, table=True):
 
 
 class NoticeRead(SQLModel, table=True):
+    __table_args__ = (UniqueConstraint("user_id", "notice_id", name="uq_noticeread_user_notice"),)
     id: int | None = Field(default=None, primary_key=True)
     user_id: int = Field(index=True)
     notice_id: int = Field(index=True)
@@ -148,6 +155,7 @@ class EventOption(SQLModel, table=True):
 
 class EventVote(SQLModel, table=True):
     """투표 1인 1표. option_id None = 기권."""
+    __table_args__ = (UniqueConstraint("event_id", "user_id", name="uq_eventvote_event_user"),)
     id: int | None = Field(default=None, primary_key=True)
     event_id: int = Field(index=True)
     user_id: int = Field(index=True)
@@ -164,6 +172,7 @@ class EventEntry(SQLModel, table=True):
 
 
 class EventEntryLike(SQLModel, table=True):
+    __table_args__ = (UniqueConstraint("entry_id", "user_id", name="uq_entrylike_entry_user"),)
     id: int | None = Field(default=None, primary_key=True)
     entry_id: int = Field(index=True)
     user_id: int = Field(index=True)
@@ -171,6 +180,7 @@ class EventEntryLike(SQLModel, table=True):
 
 class DateAvailability(SQLModel, table=True):
     """날짜투표: 사용자별 (날짜, 시) 가능 표시."""
+    __table_args__ = (UniqueConstraint("event_id", "user_id", "date", "hour", name="uq_dateavail"),)
     id: int | None = Field(default=None, primary_key=True)
     event_id: int = Field(index=True)
     user_id: int = Field(index=True)

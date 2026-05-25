@@ -80,7 +80,10 @@ export default function DatePoll({ event, reload }: { event: EventData; reload: 
 
   const apply = (d: string, h: number, add: boolean) => {
     setMine((s) => { const n = new Set(s); const k = key(d, h); if (add) n.add(k); else n.delete(k); return n; });
-    api(`/api/events/${event.id}/availability`, { json: { date: d, hour: h, on: add } }).catch(() => {});
+    api(`/api/events/${event.id}/availability`, { json: { date: d, hour: h, on: add } }).catch(() => {
+      // 서버 저장 실패 → 낙관적 표시 롤백(거짓 표시 방지)
+      setMine((s) => { const n = new Set(s); const k = key(d, h); if (add) n.delete(k); else n.add(k); return n; });
+    });
   };
   const down = (d: string, h: number) => { setSelected({ d, h }); if (!user) return; paintAdd.current = !mine.has(key(d, h)); painting.current = true; apply(d, h, paintAdd.current); };
   const enter = (d: string, h: number) => { setHover({ d, h }); if (user && painting.current) apply(d, h, paintAdd.current); };

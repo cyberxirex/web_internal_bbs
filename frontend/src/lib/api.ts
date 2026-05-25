@@ -26,6 +26,11 @@ export async function api<T = unknown>(path: string, opts: Opts = {}): Promise<T
     body,
   });
   if (!res.ok) {
+    // 토큰 만료/무효 → 저장된 토큰을 비우고 전역에 알림(헤더 등 UI가 로그인 상태로 남는 것 방지)
+    if (res.status === 401 && typeof window !== "undefined") {
+      clearToken();
+      window.dispatchEvent(new Event("auth:unauthorized"));
+    }
     let detail = `요청 실패 (${res.status})`;
     try {
       const d = await res.json();

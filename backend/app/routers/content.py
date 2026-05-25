@@ -4,6 +4,7 @@ from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.abuse import PROFANITY_FILTER, min_interval, rate_limit
@@ -279,18 +280,32 @@ def create_comment(post_id: int, body: CommentIn, request: Request, session: Ses
 
 
 # ── 공감(추천) 토글 — 1인 1표 ─────────────────────────────
+def _vote_count(session: Session, target_type: str, target_id: int) -> int:
+    return len(session.exec(
+        select(Vote.id).where(Vote.target_type == target_type, Vote.target_id == target_id)
+    ).all())
+
+
 def _toggle_vote(session: Session, user: User, target_type: str, target_id: int, obj) -> dict:
+    """공감 토글. 카운터는 ±1 누산 대신 실제 Vote 행 수로 재계산 →
+    동시 요청 시 lost-update 드리프트 방지. 중복 삽입은 unique 제약으로 차단."""
+    obj_type, obj_id = type(obj), obj.id
     existing = session.exec(
         select(Vote).where(Vote.user_id == user.id, Vote.target_type == target_type, Vote.target_id == target_id)
     ).first()
     if existing:
         session.delete(existing)
-        obj.votes = max(0, obj.votes - 1)
         voted = False
     else:
         session.add(Vote(user_id=user.id, target_type=target_type, target_id=target_id))
-        obj.votes += 1
         voted = True
+        try:
+            session.flush()  # 동시 중복 공감 → unique 위반을 여기서 흡수(이미 공감한 상태로 간주)
+        except IntegrityError:
+            session.rollback()
+            voted = True
+    obj = session.get(obj_type, obj_id)
+    obj.votes = _vote_count(session, target_type, target_id)
     session.add(obj)
     session.commit()
     return {"voted": voted, "votes": obj.votes}
@@ -310,4 +325,8 @@ def vote_comment(comment_id: int, session: Session = Depends(get_session), user:
     c = session.get(Comment, comment_id)
     if not c:
         raise HTTPException(404, "댓글을 찾을 수 없습니다.")
+    p = session.get(Post, c.post_id)
+    if not p:
+        raise HTTPException(404, "댓글을 찾을 수 없습니다.")
+    require_board_access(session, user, session.get(Board, p.board_id))  # 부서 게시판 비멤버 차단(IDOR 방지)
     return _toggle_vote(session, user, "comment", comment_id, c)

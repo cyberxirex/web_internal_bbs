@@ -2,11 +2,12 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import LeftPanel from "@/components/LeftPanel";
 import NewBadge from "@/components/NewBadge";
 import { api, imgUrl, relTime } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { useFocusRefetch } from "@/lib/useFocusRefetch";
 
 type Board = { slug: string; name: string; anon: boolean; desc: string; color: string };
 type Row = { id: number; board: string; color: string; title: string; author: string; votes: number; comments: number; views: number; createdAt: string; image: string | null; imageCount: number; isNew?: boolean };
@@ -21,15 +22,17 @@ export default function BoardPage() {
   const [page, setPage] = useState(1);
   const isGallery = slug === "gallery";
 
-  useEffect(() => {
+  const load = useCallback(() => {
     setErr("");
-    setPage(1);
     // 갤러리는 공개(비로그인도 열람, 블러). 그 외 게시판은 로그인 필요.
     const ep = isGallery ? "/api/gallery" : `/api/boards/${slug}/posts`;
     api<{ board: Board; posts: Row[]; pinned?: Row[] }>(ep)
       .then((d) => { setBoard(d.board); setPosts(d.posts); setPinned(d.pinned || []); })
       .catch((e) => setErr(e.message));
   }, [slug, isGallery]);
+
+  useEffect(() => { setPage(1); load(); }, [load]);
+  useFocusRefetch(load);  // 다른 사용자가 올린 새 글을 탭 복귀 시 반영
 
   const blurred = isGallery && !user;
   const PER = isGallery ? 9 : 15, MAX_PAGES = 6;

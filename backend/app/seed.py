@@ -1,5 +1,7 @@
-"""초기 시드 데이터 (비어 있을 때만 삽입)."""
+"""초기 시드 데이터 (개발 환경에서, 비어 있을 때만 삽입)."""
 from __future__ import annotations
+
+import os
 
 from sqlmodel import Session, select
 
@@ -20,6 +22,9 @@ BOARDS = [
 
 
 def seed() -> None:
+    # 데모 시드는 개발 환경에서만. 운영(ENV=production)에선 더미데이터·기본 admin 계정 주입 금지.
+    if os.getenv("ENV", "development").lower() == "production":
+        return
     with Session(engine) as s:
         if s.exec(select(Board)).first():
             return  # 이미 시드됨
@@ -33,7 +38,8 @@ def seed() -> None:
         for b in boards.values():
             s.refresh(b)
 
-        admin = User(username="admin", nickname="나야나", password_hash=hash_pw("admin"),
+        admin_pw = os.getenv("SEED_ADMIN_PW", "admin")  # 운영 데이터 이관 시 환경변수로 주입
+        admin = User(username="admin", nickname="나야나", password_hash=hash_pw(admin_pw),
                      is_admin=True, points=1280, level=7, level_name="열심 회원", groups="개발팀", last_login=now())
         kim = User(username="kim", nickname="kim***", password_hash=hash_pw("test"), groups="개발팀")
         s.add(admin); s.add(kim)

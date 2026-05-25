@@ -4,6 +4,7 @@ from collections import defaultdict
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.abuse import PROFANITY_FILTER, min_interval
@@ -132,13 +133,19 @@ def poll_vote(event_id: int, body: PollVoteIn, session: Session = Depends(get_se
     require_event_visible(user, e)
     if session.exec(select(EventVote).where(EventVote.event_id == event_id, EventVote.user_id == user.id)).first():
         raise HTTPException(409, "이미 투표하셨습니다. (1인 1표)")
+    opt = None
     if body.option_id is not None:
         opt = session.get(EventOption, body.option_id)
         if not opt or opt.event_id != event_id:
             raise HTTPException(400, "잘못된 선택지입니다.")
-        opt.votes += 1
-        session.add(opt)
+    # 동시 중복 투표는 (event_id,user_id) unique 제약이 차단(IntegrityError→409). 카운터는 실제 표 수로 재계산.
     session.add(EventVote(event_id=event_id, user_id=user.id, option_id=body.option_id))
+    session.flush()
+    if opt is not None:
+        opt.votes = len(session.exec(
+            select(EventVote.id).where(EventVote.event_id == event_id, EventVote.option_id == opt.id)
+        ).all())
+        session.add(opt)
     session.commit()
     return {"ok": True}
 
@@ -175,12 +182,18 @@ def like_entry(entry_id: int, session: Session = Depends(get_session), user: Use
     like = session.exec(select(EventEntryLike).where(EventEntryLike.entry_id == entry_id, EventEntryLike.user_id == user.id)).first()
     if like:
         session.delete(like)
-        en.likes = max(0, en.likes - 1)
         liked = False
     else:
         session.add(EventEntryLike(entry_id=entry_id, user_id=user.id))
-        en.likes += 1
         liked = True
+        try:
+            session.flush()  # 동시 중복 좋아요 → unique 위반 흡수
+        except IntegrityError:
+            session.rollback()
+            liked = True
+    # 좋아요 수는 실제 행 수로 재계산(드리프트 방지)
+    en = session.get(EventEntry, entry_id)
+    en.likes = len(session.exec(select(EventEntryLike.id).where(EventEntryLike.entry_id == entry_id)).all())
     session.add(en)
     session.commit()
     return {"liked": liked, "likes": en.likes}

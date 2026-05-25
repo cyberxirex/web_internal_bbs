@@ -1,14 +1,19 @@
 """비밀번호 해시 · 토큰 · 인증 의존성."""
 from __future__ import annotations
 
+import os
 import secrets
+from datetime import timedelta
 
 import bcrypt
 from fastapi import Depends, Header, HTTPException, Request
 from sqlmodel import Session, select
 
 from app.db import get_session
-from app.models import AuthToken, Board, BoardMember, BoardNoticer, User
+from app.models import AuthToken, Board, BoardMember, BoardNoticer, User, now
+
+# 토큰 유효기간(일). 환경변수로 조정 가능.
+TOKEN_TTL_DAYS = int(os.getenv("TOKEN_TTL_DAYS", "7"))
 
 
 def hash_pw(pw: str) -> str:
@@ -26,6 +31,25 @@ def new_token() -> str:
     return secrets.token_urlsafe(32)
 
 
+def token_expiry():
+    return now() + timedelta(days=TOKEN_TTL_DAYS)
+
+
+def _resolve_token(session: Session, token: str) -> AuthToken | None:
+    """토큰 조회 + 만료 검사. 만료된 토큰은 삭제하고 None 반환."""
+    row = session.get(AuthToken, token)
+    if not row:
+        return None
+    if row.expires_at is not None:
+        # SQLite는 naive로 저장됨 → aware 비교 위해 UTC로 보정
+        exp = row.expires_at if row.expires_at.tzinfo else row.expires_at.replace(tzinfo=now().tzinfo)
+        if exp < now():
+            session.delete(row)
+            session.commit()
+            return None
+    return row
+
+
 def client_ip(request: Request) -> str:
     # 사내망 내부 배포 가정: 프록시 있으면 X-Forwarded-For 첫 IP 사용
     xff = request.headers.get("x-forwarded-for")
@@ -41,7 +65,7 @@ def get_current_user(
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="로그인이 필요합니다.")
     token = authorization.split(" ", 1)[1].strip()
-    row = session.get(AuthToken, token)
+    row = _resolve_token(session, token)
     if not row:
         raise HTTPException(status_code=401, detail="세션이 만료되었습니다. 다시 로그인해 주세요.")
     user = session.get(User, row.user_id)
@@ -57,7 +81,7 @@ def get_optional_user(
     if not authorization or not authorization.lower().startswith("bearer "):
         return None
     token = authorization.split(" ", 1)[1].strip()
-    row = session.get(AuthToken, token)
+    row = _resolve_token(session, token)
     if not row:
         return None
     return session.get(User, row.user_id)

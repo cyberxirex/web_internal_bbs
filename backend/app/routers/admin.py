@@ -5,7 +5,9 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from app.db import get_session
-from app.models import Banner, Board, BoardMember, BoardNoticer, Comment, Event, EventOption, Post, User, now
+from app.models import (Banner, Board, BoardMember, BoardNoticer, Comment,
+                        DateAvailability, Event, EventEntry, EventEntryLike,
+                        EventOption, EventVote, Post, User, now)
 from app.security import require_admin
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -198,6 +200,17 @@ def update_event(event_id: int, body: EventEditIn, session: Session = Depends(ge
 def delete_event(event_id: int, session: Session = Depends(get_session), admin: User = Depends(require_admin)):
     e = session.get(Event, event_id)
     if e:
+        # 연관 자식 레코드 정리(FK 미적용 → 수동 cascade). 고아 레코드/집계 오염 방지.
+        for opt in session.exec(select(EventOption).where(EventOption.event_id == event_id)).all():
+            session.delete(opt)
+        for ev in session.exec(select(EventVote).where(EventVote.event_id == event_id)).all():
+            session.delete(ev)
+        for entry in session.exec(select(EventEntry).where(EventEntry.event_id == event_id)).all():
+            for like in session.exec(select(EventEntryLike).where(EventEntryLike.entry_id == entry.id)).all():
+                session.delete(like)
+            session.delete(entry)
+        for da in session.exec(select(DateAvailability).where(DateAvailability.event_id == event_id)).all():
+            session.delete(da)
         session.delete(e)
         session.commit()
     return {"ok": True}

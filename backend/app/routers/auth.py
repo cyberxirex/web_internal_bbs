@@ -7,7 +7,7 @@ from sqlmodel import Session, select
 from app.abuse import check_signup_ip, rate_limit
 from app.db import get_session
 from app.models import AuthToken, User, now
-from app.security import client_ip, get_current_user, hash_pw, new_token, verify_pw
+from app.security import client_ip, get_current_user, hash_pw, new_token, token_expiry, verify_pw
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -55,9 +55,8 @@ def signup(body: SignupIn, request: Request, session: Session = Depends(get_sess
         prev_login=now(),  # 신규 가입자는 이전 방문 없음 → 처음엔 NEW 없음
     )
     session.add(user)
-    session.commit()
-    session.refresh(user)
-    token = AuthToken(token=new_token(), user_id=user.id)
+    session.flush()  # user.id 확보 (커밋 분리 없이 단일 트랜잭션 유지)
+    token = AuthToken(token=new_token(), user_id=user.id, expires_at=token_expiry())
     session.add(token)
     session.commit()
     return {"token": token.token, "user": user_public(user), "flagged": flagged}
@@ -72,7 +71,7 @@ def login(body: LoginIn, request: Request, session: Session = Depends(get_sessio
     user.prev_login = user.last_login or user.created_at  # 직전 방문 시각 보존
     user.last_login = now()
     session.add(user)
-    token = AuthToken(token=new_token(), user_id=user.id)
+    token = AuthToken(token=new_token(), user_id=user.id, expires_at=token_expiry())
     session.add(token)
     session.commit()
     return {"token": token.token, "user": user_public(user)}
