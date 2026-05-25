@@ -36,6 +36,41 @@ cd frontend && npm run dev          # :3000
 | `CORS_ORIGINS` | localhost:3000,127… | 허용 origin 콤마구분 |
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8000` | 프론트가 호출할 백엔드 |
 
+## 배포 (Production)
+
+`npm run build`는 프로덕션 빌드(`next build`)가 맞다. 단 배포 전 다음을 반드시 챙길 것.
+
+### ⚠️ 프론트: `NEXT_PUBLIC_API_URL`은 빌드 타임에 번들로 인라인됨
+
+`lib/api.ts`의 `BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"`는 **빌드 시점에 값이 고정**된다(런타임이 아님). env를 안 주고 `npm run build`하면 번들에 `http://localhost:8000`이 박혀, 배포 시 **다른 사람 브라우저가 자기 localhost를 호출**해 전부 실패한다. 반드시 빌드 타임에 실제 백엔드 주소를 줄 것:
+
+```bash
+# 방법 1: 인라인
+NEXT_PUBLIC_API_URL=http://<백엔드-호스트>:8000 npm run build
+# 방법 2: frontend/.env.production (next build가 자동 로드) — .env*는 gitignore라 배포머신/CI에 직접 생성
+echo 'NEXT_PUBLIC_API_URL=http://<백엔드-호스트>:8000' > frontend/.env.production
+```
+
+빌드 후 `npm run start`(Node 서버, 기본 :3000)로 서빙. (정적/standalone 등 다른 배포 형태는 `next.config.ts`에 `output` 설정 필요 — 현재는 Node 서버 방식.)
+
+### 백엔드: env로 운영 모드 + 프론트 origin 허용
+
+```bash
+ENV=production \
+SEED_ADMIN_PW=<강한비번> \
+CORS_ORIGINS=http://<프론트-호스트>:3000 \
+uv run uvicorn app.main:app --port 8000
+```
+
+- `ENV=production` → 게시판 구조만 시드, 데모/admin 미주입.
+- **`CORS_ORIGINS`에 프론트 배포 origin을 넣지 않으면** 빌드가 맞아도 브라우저가 CORS로 막힌다(프론트 `NEXT_PUBLIC_API_URL`과 짝).
+- 역프록시 뒤라면 `TRUST_PROXY=1`(그래야 레이트리밋/IP 식별이 동작). 직결이면 기본값(0) 유지.
+
+### 참고
+- next/image는 전부 `unoptimized`라 원격 호스트용 `images.remotePatterns` 설정 불필요.
+- DB는 기본 SQLite(`backend/ctck.db`, 파일 1개). 다중 프로세스/대규모면 `DATABASE_URL`로 PostgreSQL 전환(이때 인메모리 레이트리밋·기존 테이블 UNIQUE 소급은 별도 처리 필요).
+- 업로드 이미지는 `backend/uploads/`(리포 미포함) — 배포 시 영속 볼륨 필요.
+
 ## 백엔드 구조 (`backend/app/`)
 
 `db.py`(엔진/세션 + SQLite WAL·풀, `_ensure_columns` 경량 마이그레이션) · `models.py`(전 테이블, 복합 UNIQUE 제약) · `security.py`(bcrypt, 토큰, `get_current_user`/`require_admin`, `client_ip`, `target_matches`) · `abuse.py`(인메모리 레이트리밋·도배방지·다중가입 플래그·교체형 비속어필터 `PROFANITY_FILTER`) · `constants.py`(`GROUPS` 부서 목록 단일 출처) · `timeutil.py`(UTC/KST 변환) · `seed.py` · `routers/`(auth, content, events, notifications, admin, misc).
