@@ -1,0 +1,18 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Runtime data (not committed to public repo)
+backend/ctck.db
+*.db
+backend/uploads/
+
+# OS
+.DS_Store
