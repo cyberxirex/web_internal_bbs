@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from datetime import timedelta, timezone
-
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 from sqlmodel import Session, select
@@ -11,6 +9,7 @@ from app.constants import GROUPS
 from app.db import get_session
 from app.models import AuthToken, User, now
 from app.security import client_ip, get_current_user, hash_pw, new_token, token_expiry, verify_pw
+from app.timeutil import to_kst
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -36,16 +35,10 @@ def user_public(u: User) -> dict:
         "level": u.level,
         "levelName": u.level_name,
         "points": u.points,
-        "joinedAt": u.created_at.date().isoformat(),
-        "lastLogin": _kst(u.last_login).strftime("%Y-%m-%d %H:%M") if u.last_login else None,
+        "joinedAt": to_kst(u.created_at).date().isoformat(),
+        "lastLogin": to_kst(u.last_login).strftime("%Y-%m-%d %H:%M") if u.last_login else None,
         "groups": [g for g in (u.groups or "").split(",") if g],
     }
-
-
-def _kst(dt):
-    """저장된 naive UTC → KST(+9) 표시용 변환."""
-    base = dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
-    return base.astimezone(timezone(timedelta(hours=9)))
 
 
 @router.post("/signup")

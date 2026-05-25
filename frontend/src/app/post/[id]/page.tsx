@@ -127,10 +127,10 @@ export default function PostPage() {
         </div>
         <span className={`inline-block text-[11px] font-bold px-2 py-0.5 rounded ${post.color === "pink" ? "bg-pink-soft text-pink" : "bg-primary-soft text-primary"}`}>{post.board}</span>
         <h1 className="text-2xl font-extrabold mt-3 leading-snug">{post.title}</h1>
-        <div className="flex items-center gap-3 mt-3 text-xs text-muted">
-          <span className="font-semibold text-foreground/70">{post.author}</span>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mt-3 text-xs text-muted">
+          <span className="font-semibold text-foreground/70 truncate max-w-[40%]">{post.author}</span>
           <span>· {relTime(post.createdAt)} 전</span><span>· 조회 {post.views}</span><span>· 댓글 {comments.length}</span>
-          <span className="ml-auto flex items-center gap-1.5">
+          <span className="ml-auto flex items-center gap-1.5 shrink-0">
             {user?.isAdmin && (
               <button onClick={pin} className={`shrink-0 font-bold rounded-lg px-2.5 py-1 border ${post.pinned ? "text-primary border-primary bg-primary-soft" : "text-muted border-border hover:border-primary hover:text-primary"}`}>📌 {post.pinned ? "고정 해제" : "고정"}</button>
             )}

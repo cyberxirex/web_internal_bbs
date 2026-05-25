@@ -18,6 +18,7 @@ from app.constants import GROUPS
 from app.db import get_session
 from app.models import Banner, Board, Notice, Post, User
 from app.routers.content import board_dict, post_row
+from app.timeutil import to_kst
 from app.security import can_access_board, get_current_user
 
 router = APIRouter(prefix="/api", tags=["misc"])
@@ -68,7 +69,7 @@ def meta():
 @router.get("/notices")
 def list_notices(session: Session = Depends(get_session)):
     rows = session.exec(select(Notice).order_by(Notice.created_at.desc())).all()
-    return [{"id": n.id, "title": n.title, "time": n.created_at.strftime("%m-%d")} for n in rows]
+    return [{"id": n.id, "title": n.title, "time": to_kst(n.created_at).strftime("%m-%d")} for n in rows]
 
 
 # ── 배너 (메인 상단 사내 홍보 슬롯) ───────────────────────
@@ -154,8 +155,17 @@ async def upload(file: UploadFile = File(...), user: User = Depends(get_current_
         raise HTTPException(400, "유효한 이미지 파일이 아닙니다.")
     if fmt not in ALLOWED_IMAGE_FORMATS:
         raise HTTPException(400, "지원하지 않는 이미지 형식입니다.")
+    # verify()는 trailing 데이터(polyglot 페이로드)를 제거하지 못함 → 재인코딩해 저장.
+    try:
+        reopened = Image.open(BytesIO(data))  # verify() 후엔 재오픈 필요
+        out = BytesIO()
+        save_kw = {"save_all": True} if fmt in ("GIF", "WEBP") else {}
+        reopened.save(out, format=fmt, **save_kw)
+        clean = out.getvalue()
+    except Exception:
+        raise HTTPException(400, "이미지를 처리할 수 없습니다.")
     name = secrets.token_hex(8) + ext
     path = os.path.join(UPLOAD_DIR, name)
     with open(path, "wb") as f:
-        f.write(data)
+        f.write(clean)
     return {"url": f"/uploads/{name}"}

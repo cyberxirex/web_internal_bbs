@@ -108,9 +108,16 @@ body {
   .badge-wiggle, .chev-bounce { animation: none; }
 }
 
-/* 키보드 포커스 가시성 (WCAG 2.4.7) — 마우스 클릭엔 영향 없이 키보드 탐색 시에만 표시 */
-*:focus-visible {
+/* 키보드 포커스 가시성 (WCAG 2.4.7) — 키보드 탐색 시에만 표시.
+   Tailwind v4가 universal `*:focus-visible`를 컴파일에서 드롭하므로 구체 셀렉터로 명시. */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+summary:focus-visible,
+[role="button"]:focus-visible,
+[tabindex]:not([tabindex="-1"]):focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
-  border-radius: 4px;
 }

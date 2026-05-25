@@ -24,7 +24,7 @@ export default function AccountCard() {
                 <span className="block text-[11px] text-muted truncate">Lv.{user.level} · {user.points.toLocaleString()}P</span>
               </span>
             </Link>
-            <button onClick={logout} title="로그아웃" className="shrink-0 w-7 h-7 grid place-items-center rounded-lg text-muted hover:text-pink hover:bg-background">
+            <button onClick={logout} title="로그아웃" aria-label="로그아웃" className="shrink-0 w-7 h-7 grid place-items-center rounded-lg text-muted hover:text-pink hover:bg-background">
               ⏻
             </button>
           </div>

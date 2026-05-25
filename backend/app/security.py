@@ -1,6 +1,7 @@
 """비밀번호 해시 · 토큰 · 인증 의존성."""
 from __future__ import annotations
 
+import ipaddress
 import os
 import secrets
 from datetime import timedelta
@@ -55,13 +56,35 @@ def _resolve_token(session: Session, token: str) -> AuthToken | None:
 TRUST_PROXY = os.getenv("TRUST_PROXY", "0").lower() in ("1", "true", "yes")
 
 
+def _fallback_ip(request: Request) -> str:
+    return request.client.host if request.client else "0.0.0.0"
+
+
 def client_ip(request: Request) -> str:
     if TRUST_PROXY:
-        # 신뢰 프록시가 추가한 가장 오른쪽 값이 실제 직전 홉. 단순화해 마지막 항목 사용.
+        # 신뢰 프록시가 추가한 가장 오른쪽 값이 실제 직전 홉. 유효 IP일 때만 사용(위조/쓰레기값 방어).
         xff = request.headers.get("x-forwarded-for")
         if xff:
-            return xff.split(",")[-1].strip()
-    return request.client.host if request.client else "0.0.0.0"
+            candidate = xff.split(",")[-1].strip()
+            try:
+                ipaddress.ip_address(candidate)
+                return candidate
+            except ValueError:
+                pass
+    return _fallback_ip(request)
+
+
+def target_matches(user: User | None, target: str | None) -> bool:
+    """이벤트/알림 대상(target) 매칭 — 단일 출처.
+    그룹 또는 username(유니크)만 매칭. nickname은 중복 가능하므로 사칭 우회를 막기 위해 매칭하지 않는다."""
+    t = (target or "").strip()
+    if t in ("", "전체"):
+        return True
+    if user is None:
+        return False
+    tokens = {x.strip() for x in t.split(",") if x.strip()}
+    groups = {g.strip() for g in (user.groups or "").split(",") if g.strip()}
+    return bool(tokens & groups) or user.username in tokens
 
 
 def get_current_user(

@@ -12,7 +12,7 @@ from app.abuse import PROFANITY_FILTER, min_interval
 from app.db import get_session
 from app.models import (DateAvailability, Event, EventEntry, EventEntryLike,
                         EventOption, EventVote, User)
-from app.security import get_current_user, get_optional_user
+from app.security import get_current_user, get_optional_user, target_matches
 
 router = APIRouter(prefix="/api/events", tags=["events"])
 
@@ -23,14 +23,7 @@ def can_see_event(user: User | None, e: Event) -> bool:
     """대상(target)에 해당하는 사람에게만 노출. 전체/미지정은 모두, 관리자는 항상."""
     if user and user.is_admin:
         return True
-    target = (e.target or "").strip()
-    if target in ("", "전체"):
-        return True
-    if user is None:
-        return False
-    tokens = {x.strip() for x in target.split(",") if x.strip()}
-    groups = {g.strip() for g in (user.groups or "").split(",") if g.strip()}
-    return bool(tokens & groups) or user.username in tokens or user.nickname in tokens
+    return target_matches(user, e.target)
 
 
 def require_event_visible(user: User | None, e: Event) -> None:

@@ -35,7 +35,7 @@ export default function EventPage() {
         ) : ev.type === "poll" ? (
           <PollEvent event={ev} reload={load} />
         ) : ev.type === "date" ? (
-          <DatePoll event={ev} reload={load} />
+          <DatePoll event={ev} />
         ) : (
           <CommentEvent event={ev} reload={load} />
         )}

@@ -2,13 +2,25 @@
 import os
 from collections.abc import Iterator
 
-from sqlalchemy import inspect, text
+from sqlalchemy import event, inspect, text
 from sqlmodel import Session, SQLModel, create_engine
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./ctck.db")
 
-connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
-engine = create_engine(DATABASE_URL, echo=False, connect_args=connect_args)
+_is_sqlite = DATABASE_URL.startswith("sqlite")
+connect_args = {"check_same_thread": False} if _is_sqlite else {}
+# 풀 상향: 동시 요청 급증 시 QueuePool 고갈(timeout→500)을 완화. 사내 규모엔 충분한 여유.
+engine = create_engine(DATABASE_URL, echo=False, connect_args=connect_args,
+                       pool_size=20, max_overflow=40, pool_timeout=10)
+
+if _is_sqlite:
+    @event.listens_for(engine, "connect")
+    def _sqlite_pragmas(dbapi_conn, _record):
+        # WAL: 동시 읽기/쓰기 향상, busy_timeout: 잠금 경합 시 즉시 실패 대신 대기
+        cur = dbapi_conn.cursor()
+        cur.execute("PRAGMA journal_mode=WAL")
+        cur.execute("PRAGMA busy_timeout=5000")
+        cur.close()
 
 
 def _column_default_sql(column) -> str | None:

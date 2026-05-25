@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { EventData } from "@/app/events/[id]/page";
@@ -25,9 +25,10 @@ function seg(rO: number, rI: number, d0: number, d1: number) {
   return "M " + [...out, ...inn].join(" L ") + " Z";
 }
 
-export default function DatePoll({ event, reload }: { event: EventData; reload: () => void }) {
+export default function DatePoll({ event }: { event: EventData }) {
+  // 다른 참여자의 변경 반영은 이벤트 페이지의 useFocusRefetch가 담당(여기선 낙관적 갱신만).
   const { user } = useAuth();
-  const dates = event.dates ?? [];
+  const dates = useMemo(() => event.dates ?? [], [event.dates]);
   const myName = user ? user.nickname : null;
 
   // 내 기여를 뺀 base(다른 사람들만)
@@ -35,7 +36,7 @@ export default function DatePoll({ event, reload }: { event: EventData; reload: 
     const map = new Map<string, { count: number; names: string[] }>();
     const mineKeys = new Set((event.mine ?? []).map((m) => `${m.date}-${m.hour}`));
     (event.cells ?? []).forEach((c) => {
-      let names = c.names.slice();
+      const names = c.names.slice();
       let count = c.count;
       if (mineKeys.has(`${c.date}-${c.hour}`)) {
         if (myName) { const k = names.indexOf(myName); if (k >= 0) names.splice(k, 1); }

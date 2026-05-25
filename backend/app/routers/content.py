@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import timedelta, timezone
+from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -11,6 +11,7 @@ from sqlmodel import Session, select
 from app.abuse import PROFANITY_FILTER, min_interval, rate_limit
 from app.db import get_session
 from app.models import Board, BoardMember, BoardNoticer, Comment, Post, PostRead, User, Vote, now
+from app.timeutil import iso_utc
 
 NEW_MAX_AGE = timedelta(hours=8)  # 작성 8시간 지나면 (미확인이어도) NEW 제거
 
@@ -20,12 +21,6 @@ def _naive(dt):
     return dt.replace(tzinfo=None) if dt and dt.tzinfo else dt
 
 
-def iso_utc(dt) -> str | None:
-    """저장된 naive UTC datetime을 tz suffix 포함 ISO로 직렬화.
-    프론트 new Date(iso)가 로컬(KST)로 오해석해 9시간 어긋나는 것을 방지."""
-    if dt is None:
-        return None
-    return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).isoformat()
 from app.security import (
     can_access_board,
     can_post_notice,
@@ -293,8 +288,8 @@ def create_comment(post_id: int, body: CommentIn, request: Request, session: Ses
         c.author_ip = client_ip(request)
         c.display_author = user.nickname
     session.add(c)
-    p.comments_count += 1
-    session.add(p)
+    # 댓글수도 원자적 증가(동시 작성 시 lost-update 방지)
+    session.execute(update(Post).where(Post.id == p.id).values(comments_count=Post.comments_count + 1))
     session.commit()
     session.refresh(c)
     return {"id": c.id}

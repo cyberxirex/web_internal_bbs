@@ -8,7 +8,7 @@ from sqlmodel import Session, select
 from app.db import get_session
 from app.models import (Comment, DateAvailability, Event, EventEntry, EventVote,
                         Notice, Post, User, Vote, now)
-from app.security import get_current_user
+from app.security import get_current_user, target_matches
 
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
 
@@ -21,12 +21,7 @@ def _aware(dt: datetime) -> datetime:
 
 
 def _targets_user(event: Event, user: User) -> bool:
-    target = (event.target or "").strip()
-    if target in ("전체", ""):
-        return True
-    tokens = {x.strip() for x in target.split(",") if x.strip()}
-    groups = {g.strip() for g in (user.groups or "").split(",") if g.strip()}
-    return bool(tokens & groups) or user.username in tokens or user.nickname in tokens
+    return target_matches(user, event.target)
 
 
 def _participated(session: Session, event: Event, user: User) -> bool:

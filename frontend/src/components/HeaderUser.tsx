@@ -43,7 +43,7 @@ export default function HeaderUser() {
 
   return (
     <div ref={ref} className="relative shrink-0">
-      <button onClick={() => setOpen((o) => !o)} className="flex items-center gap-2 pl-1 pr-2 py-1 rounded-full hover:bg-background">
+      <button onClick={() => setOpen((o) => !o)} aria-label="사용자 메뉴" aria-expanded={open} className="flex items-center gap-2 pl-1 pr-2 py-1 rounded-full hover:bg-background">
         <span className="relative w-8 h-8 shrink-0 rounded-full bg-gradient-to-br from-primary to-pink text-white grid place-items-center text-xs font-bold">
           {user.nickname.slice(0, 1)}
           {total > 0 && (
