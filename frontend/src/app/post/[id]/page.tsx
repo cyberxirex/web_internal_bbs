@@ -39,7 +39,8 @@ export default function PostPage() {
       .catch((e) => setErr(e.message));
   }, [id]);
 
-  useEffect(() => { if (!loading) load(); }, [load, loading, user]);
+  // 인증 확정 후에만 fetch + user?.id 변경(로그인/로그아웃)에만 재조회 → 초기 이중 fetch 제거.
+  useEffect(() => { if (!loading) load(); }, [load, loading, user?.id]);
   useFocusRefetch(load);  // 다른 사용자가 추가한 댓글/공감을 탭 복귀 시 반영
 
   const pin = async () => {

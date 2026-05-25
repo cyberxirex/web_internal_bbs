@@ -14,7 +14,7 @@ type Row = { id: number; board: string; color: string; title: string; author: st
 
 export default function BoardPage() {
   const slug = useParams().board as string;
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
   const [board, setBoard] = useState<Board | null>(null);
   const [posts, setPosts] = useState<Row[]>([]);
   const [pinned, setPinned] = useState<Row[]>([]);
@@ -31,7 +31,10 @@ export default function BoardPage() {
       .catch((e) => setErr(e.message));
   }, [slug, isGallery]);
 
-  useEffect(() => { setPage(1); load(); }, [load]);
+  useEffect(() => { setPage(1); }, [slug]);
+  // 인증 상태가 확정된 뒤에만 fetch(비로그인으로 먼저 불렀다 다시 부르는 중복 방지).
+  // user?.id에만 반응 → 로그인/로그아웃 시에만 재조회, 객체 참조 변경엔 무반응.
+  useEffect(() => { if (!loading) load(); }, [load, loading, user?.id]);
   useFocusRefetch(load);  // 다른 사용자가 올린 새 글을 탭 복귀 시 반영
 
   const blurred = isGallery && !user;
